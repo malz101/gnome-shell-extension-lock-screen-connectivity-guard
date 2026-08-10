@@ -1,0 +1,12 @@
+{
+  "name": "gnome-shell-extension-lock-screen-connectivity-guard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint extension.js examples/polkit/10-network-lockdown.rules"
+  },
+  "devDependencies": {
+    "eslint": "10.8.1"
+  }
+}

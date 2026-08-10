@@ -1,0 +1,45 @@
+name: Publish v1.0.0
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.repository == 'malz101/gnome-shell-extension-lock-screen-connectivity-guard'
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install GNOME packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes gnome-shell make
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Validate and package system release
+        run: make package-system
+
+      - name: Create GitHub release when absent
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v1.0.0 >/dev/null 2>&1; then
+            echo 'Release v1.0.0 already exists.'
+            exit 0
+          fi
+
+          gh release create v1.0.0 \
+            dist/lock-screen-connectivity-guard-v1.0.0-system.zip \
+            --target "$GITHUB_SHA" \
+            --title 'Lock Screen Connectivity Guard 1.0.0' \
+            --notes-file docs/RELEASE_NOTES.md

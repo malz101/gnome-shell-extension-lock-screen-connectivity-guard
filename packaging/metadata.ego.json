@@ -1,0 +1,13 @@
+{
+  "uuid": "lock-screen-connectivity-guard@malz101.github.io",
+  "name": "Lock Screen Connectivity Guard",
+  "description": "Hide Wi-Fi, Bluetooth, and Airplane Mode controls on the GNOME lock screen while preserving connection-status indicators.",
+  "shell-version": [
+    "50"
+  ],
+  "url": "https://github.com/malz101/gnome-shell-extension-lock-screen-connectivity-guard",
+  "session-modes": [
+    "user",
+    "unlock-dialog"
+  ]
+}
