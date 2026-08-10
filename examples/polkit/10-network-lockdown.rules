@@ -1,0 +1,41 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+
+polkit.addRule(function(action, subject) {
+    var restricted =
+        action.id == "org.freedesktop.NetworkManager.network-control" ||
+        action.id == "org.freedesktop.NetworkManager.enable-disable-wifi" ||
+        action.id == "org.freedesktop.NetworkManager.enable-disable-network" ||
+        action.id == "org.freedesktop.NetworkManager.settings.modify.system" ||
+        action.id == "org.freedesktop.NetworkManager.settings.modify.own";
+
+    if (!restricted)
+        return undefined;
+
+    /* Never allow the unauthenticated GDM greeter to mutate networking. */
+    if (subject.user == "gdm" || subject.isInGroup("gdm")) {
+        polkit.log(
+            "Lock Screen Connectivity Guard: denying GDM action " +
+            action.id
+        );
+
+        return polkit.Result.NO;
+    }
+
+    try {
+        var locked = polkit.spawn([
+            "/usr/local/libexec/polkit-session-locked",
+            String(subject.uid)
+        ]).trim();
+
+        if (locked == "no")
+            return undefined;
+    } catch (error) {
+        polkit.log(
+            "Lock Screen Connectivity Guard: unable to determine lock state " +
+            "for uid=" + subject.uid + ": " + error
+        );
+    }
+
+    /* Locked or indeterminate: fail closed for the selected actions. */
+    return polkit.Result.NO;
+});

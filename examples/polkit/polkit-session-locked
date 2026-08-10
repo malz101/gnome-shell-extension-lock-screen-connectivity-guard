@@ -1,0 +1,22 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+uid="${1:-}"
+
+if [[ -z "$uid" || ! "$uid" =~ ^[0-9]+$ ]]; then
+    exit 1
+fi
+
+while read -r session session_uid _; do
+    [[ "$session_uid" == "$uid" ]] || continue
+
+    active=$(loginctl show-session "$session" -p Active --value)
+    session_class=$(loginctl show-session "$session" -p Class --value)
+
+    if [[ "$active" == "yes" && "$session_class" == "user" ]]; then
+        loginctl show-session "$session" -p LockedHint --value
+        exit $?
+    fi
+done < <(loginctl list-sessions --no-legend)
+
+exit 1
