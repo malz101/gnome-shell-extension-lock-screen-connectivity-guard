@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright (C) 2026 Malik Edwards
+ */
+
 import GLib from 'gi://GLib';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
@@ -5,9 +10,10 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {getRfkillManager} from 'resource:///org/gnome/shell/ui/status/rfkill.js';
 
 const RETRY_INTERVAL_MS = 250;
+const MAX_CONTROL_RETRIES = 40;
 const BLUETOOTH_RESTORE_INTERVAL_MS = 250;
 
-export default class LockScreenNetworkGuardExtension extends Extension {
+export default class LockScreenConnectivityGuardExtension extends Extension {
     enable() {
         this._airplaneToggle = null;
         this._wifiToggle = null;
@@ -33,6 +39,8 @@ export default class LockScreenNetworkGuardExtension extends Extension {
         this._restoringBluetooth = false;
 
         this._retrySourceId = 0;
+        this._controlRetryCount = 0;
+        this._airplaneRestoreSourceId = 0;
         this._bluetoothRestoreSourceId = 0;
 
         this._rfkillManager = getRfkillManager();
@@ -44,15 +52,19 @@ export default class LockScreenNetworkGuardExtension extends Extension {
             'updated',
             () => this._syncProtection());
 
-        this._findControls();
-        this._startRetry();
+        if (!this._findControls())
+            this._startRetry();
         this._syncProtection();
-
-        console.log('Lock Screen Network Guard: extension enabled');
     }
 
     disable() {
+        /*
+         * The extension uses unlock-dialog because its controls must remain
+         * protected while the screen is locked. Always undo every Shell
+         * modification here when GNOME changes or disables the session mode.
+         */
         this._removeRetry();
+        this._removeAirplaneRestore();
         this._removeBluetoothRestore();
 
         this._releaseAirplaneProtection();
@@ -79,8 +91,6 @@ export default class LockScreenNetworkGuardExtension extends Extension {
         this._wifiToggle = null;
         this._bluetoothToggle = null;
         this._bluetoothClient = null;
-
-        console.log('Lock Screen Network Guard: extension disabled');
     }
 
     _shouldProtect() {
@@ -132,8 +142,16 @@ export default class LockScreenNetworkGuardExtension extends Extension {
             () => {
                 const foundAllControls = this._findControls();
                 this._syncProtection();
+                this._controlRetryCount++;
 
-                if (foundAllControls) {
+                if (foundAllControls ||
+                    this._controlRetryCount >= MAX_CONTROL_RETRIES) {
+                    if (!foundAllControls) {
+                        console.warn(
+                            'Lock Screen Connectivity Guard: ' +
+                            'some Quick Settings controls were not found');
+                    }
+
                     this._retrySourceId = 0;
                     return GLib.SOURCE_REMOVE;
                 }
@@ -148,6 +166,7 @@ export default class LockScreenNetworkGuardExtension extends Extension {
 
         GLib.source_remove(this._retrySourceId);
         this._retrySourceId = 0;
+        this._controlRetryCount = 0;
     }
 
     _syncProtection() {
@@ -180,7 +199,6 @@ export default class LockScreenNetworkGuardExtension extends Extension {
             });
 
         this._airplaneToggle.visible = false;
-        console.log('Lock Screen Network Guard: Airplane Mode tile hidden');
     }
 
     _releaseAirplaneProtection() {
@@ -190,6 +208,7 @@ export default class LockScreenNetworkGuardExtension extends Extension {
         this._airplaneProtected = false;
         this._airplaneBaseline = null;
         this._restoringAirplane = false;
+        this._removeAirplaneRestore();
 
         if (this._airplaneVisibleId && this._airplaneToggle) {
             this._airplaneToggle.disconnect(this._airplaneVisibleId);
@@ -203,7 +222,6 @@ export default class LockScreenNetworkGuardExtension extends Extension {
         }
 
         this._savedAirplaneVisible = null;
-        console.log('Lock Screen Network Guard: Airplane Mode tile restored');
     }
 
     _onAirplaneModeChanged() {
@@ -217,10 +235,22 @@ export default class LockScreenNetworkGuardExtension extends Extension {
         this._restoringAirplane = true;
         this._rfkillManager.airplane_mode = this._airplaneBaseline;
 
-        GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
-            this._restoringAirplane = false;
-            return GLib.SOURCE_REMOVE;
-        });
+        this._airplaneRestoreSourceId = GLib.idle_add(
+            GLib.PRIORITY_DEFAULT_IDLE,
+            () => {
+                this._airplaneRestoreSourceId = 0;
+                this._restoringAirplane = false;
+                return GLib.SOURCE_REMOVE;
+            });
+    }
+
+    _removeAirplaneRestore() {
+        if (!this._airplaneRestoreSourceId)
+            return;
+
+        GLib.source_remove(this._airplaneRestoreSourceId);
+        this._airplaneRestoreSourceId = 0;
+        this._restoringAirplane = false;
     }
 
     _protectWifi() {
@@ -238,7 +268,6 @@ export default class LockScreenNetworkGuardExtension extends Extension {
             });
 
         this._wifiToggle.visible = false;
-        console.log('Lock Screen Network Guard: Wi-Fi tile hidden');
     }
 
     _releaseWifiProtection() {
@@ -257,13 +286,12 @@ export default class LockScreenNetworkGuardExtension extends Extension {
                 this._wifiToggle._sync();
             } catch (error) {
                 console.warn(
-                    `Lock Screen Network Guard: could not resync Wi-Fi tile: ${error.message}`);
+                    `Lock Screen Connectivity Guard: could not resync Wi-Fi tile: ${error.message}`);
                 this._wifiToggle.visible = this._savedWifiVisible ?? true;
             }
         }
 
         this._savedWifiVisible = null;
-        console.log('Lock Screen Network Guard: Wi-Fi tile restored');
     }
 
     _protectBluetooth() {
@@ -283,7 +311,6 @@ export default class LockScreenNetworkGuardExtension extends Extension {
             });
 
         this._bluetoothToggle.visible = false;
-        console.log('Lock Screen Network Guard: Bluetooth tile hidden');
     }
 
     _releaseBluetoothProtection() {
@@ -307,7 +334,6 @@ export default class LockScreenNetworkGuardExtension extends Extension {
         }
 
         this._savedBluetoothVisible = null;
-        console.log('Lock Screen Network Guard: Bluetooth tile restored');
     }
 
     _onBluetoothActiveChanged() {
